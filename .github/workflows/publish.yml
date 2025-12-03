@@ -16,16 +16,21 @@ on:
 
 permissions:
   contents: read
-  packages: write  # обязательно для GHCR
+  packages: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # можно оставить GitHub-hosted, так как не требуется self-hosted
+    runs-on: ubuntu-latest
     env:
       PLATFORMS: "linux/amd64,linux/arm64"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set lowercase repository name
+        run: |
+          REPO_LC="${{ github.repository == '' && 'unknown' || github.repository }}"
+          echo "REPO_LC=$(echo "$REPO_LC" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Get branch/tag info
         id: branch-name
@@ -64,8 +69,8 @@ jobs:
         with:
           context: ./services/identity
           tags: |
-            ghcr.io/${{ github.repository }}/crapi-identity:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/crapi-identity:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-identity:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-identity:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=identity-service
@@ -76,8 +81,8 @@ jobs:
         with:
           context: ./services/workshop
           tags: |
-            ghcr.io/${{ github.repository }}/crapi-workshop:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/crapi-workshop:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-workshop:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-workshop:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=workshop-service
@@ -88,8 +93,8 @@ jobs:
         with:
           context: ./services/chatbot
           tags: |
-            ghcr.io/${{ github.repository }}/crapi-chatbot:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/crapi-chatbot:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-chatbot:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-chatbot:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=chatbot-service
@@ -100,8 +105,8 @@ jobs:
         with:
           context: ./services/community
           tags: |
-            ghcr.io/${{ github.repository }}/crapi-community:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/crapi-community:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-community:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-community:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=community-service
@@ -112,8 +117,8 @@ jobs:
         with:
           context: ./services/web
           tags: |
-            ghcr.io/${{ github.repository }}/crapi-web:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/crapi-web:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-web:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/crapi-web:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=web-service
@@ -124,8 +129,8 @@ jobs:
         with:
           context: ./services/gateway-service
           tags: |
-            ghcr.io/${{ github.repository }}/gateway-service:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/gateway-service:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/gateway-service:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/gateway-service:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=gateway-service
@@ -136,8 +141,8 @@ jobs:
         with:
           context: ./services/mailhog
           tags: |
-            ghcr.io/${{ github.repository }}/mailhog:${{ env.TAG_LATEST }}
-            ghcr.io/${{ github.repository }}/mailhog:${{ env.TAG_NAME }}
+            ghcr.io/${{ env.REPO_LC }}/mailhog:${{ env.TAG_LATEST }}
+            ghcr.io/${{ env.REPO_LC }}/mailhog:${{ env.TAG_NAME }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           cache-from: type=gha,scope=mailhog-service
