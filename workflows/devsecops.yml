@@ -1,0 +1,381 @@
+name: DevSecOps CI/CD for crAPI
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: "staging-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  STAGE_URL: ${{ vars.STAGE_URL }}   # e.g. http://139.28.223.105:8888
+  DAST_URL: ${{ vars.DAST_URL }}     # e.g. http://127.0.0.1:8888
+  CRAPI_VERSION: latest
+
+jobs:
+
+  # ---------- BUILD ----------
+  build:
+    name: Build from source & Push to GHCR
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          REPO_LC="${GITHUB_REPOSITORY,,}"
+          SHA="${GITHUB_SHA::7}"
+          TAG="$SHA"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build all images from source
+        working-directory: deploy/docker
+        run: |
+          ./build-all.sh
+
+          IMAGES=$(docker images | grep '^crapi/' | awk '{print $1 ":" $2}')
+          for IMG in $IMAGES; do
+            SERVICE=$(echo "$IMG" | sed 's|crapi/||' | cut -d: -f1)
+            NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
+            docker tag "$IMG" "$NEW_IMG"
+            docker push "$NEW_IMG"
+            echo "$NEW_IMG" >> images.txt
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images.txt
+          path: deploy/docker/images.txt
+
+  # ---------- Dockerfile lint ----------
+  dockerfile_hadolint:
+    name: Dockerfile lint (Hadolint)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Hadolint on all Dockerfiles
+        run: |
+          DOCKERFILES=$(find . -name Dockerfile)
+          if [ -z "$DOCKERFILES" ]; then
+            echo "No Dockerfiles found"
+            exit 0
+          fi
+          for DF in $DOCKERFILES; do
+            echo "Linting $DF"
+            docker run --rm -i hadolint/hadolint < "$DF" || true
+          done
+
+  # ---------- SAST (Semgrep) ----------
+  sast_semgrep:
+    name: SAST (Semgrep)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep
+        run: |
+          docker run --rm -v "$PWD":/src returntocorp/semgrep:latest \
+            semgrep scan --config p/ci --json --output /src/semgrep.json || true
+          [ -s semgrep.json ] || echo '{}' > semgrep.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: semgrep.json
+          path: semgrep.json
+
+  # ---------- Secrets (Gitleaks) ----------
+  secrets_gitleaks:
+    name: Secrets (Gitleaks)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Gitleaks
+        run: |
+          docker run --rm -v "$PWD":/repo zricethezav/gitleaks:latest \
+            detect --source /repo --report-format json --report-path /repo/gitleaks.json || true
+          [ -s gitleaks.json ] || echo '[]' > gitleaks.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks.json
+          path: gitleaks.json
+
+  # ---------- Dependencies (multi-lang audit) ----------
+  deps_audit:
+    name: Dependencies (npm + govulncheck)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: NPM audit (for JS/TS parts)
+        run: |
+          PKG_JSONS=$(find . -name package.json)
+          > npm-audit.json
+          for DIR in $(dirname $PKG_JSONS); do
+            cd "$DIR"
+            if [ -f package-lock.json ]; then
+              npm ci --omit=dev || true
+            else
+              npm install --omit=dev --no-audit || true
+            fi
+            npm audit --omit=dev --json >> ../../npm-audit.json || true
+            cd - >/dev/null
+          done
+          [ -s npm-audit.json ] || echo '{}' > npm-audit.json
+
+      - name: Govulncheck (for Go parts)
+        run: |
+          GO_MODS=$(find . -name go.mod)
+          > govulncheck.json
+          for DIR in $(dirname $GO_MODS); do
+            cd "$DIR"
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+            govulncheck -json ./... >> ../../govulncheck.json || true
+            cd - >/dev/null
+          done
+          [ -s govulncheck.json ] || echo '[]' > govulncheck.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deps-audit.json
+          path: |
+            npm-audit.json
+            govulncheck.json
+
+  # ---------- SBOM (Syft CycloneDX) ----------
+  sbom_syft:
+    name: SBOM (Syft CycloneDX)
+    runs-on: self-hosted
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images.txt
+          path: .
+
+      - name: Generate SBOM for key images
+        run: |
+          IMAGES=$(cat images.txt)
+          for IMG in $IMAGES; do
+            SERVICE=$(echo "$IMG" | cut -d/ -f3 | cut -d: -f1)
+            docker run --rm anchore/syft:latest "$IMG" -o cyclonedx-json > "sbom-$SERVICE.json"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom-*.json
+
+  # ---------- Vulnerability scan (Trivy by SBOM) ----------
+  trivy_sbom:
+    name: Vulnerability scan (Trivy SBOM)
+    runs-on: self-hosted
+    needs: [sbom_syft]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: .
+
+      - name: Scan SBOM with Trivy
+        run: |
+          mkdir -p /opt/trivy-cache
+          for SBOM in sbom-*.json; do
+            [ -f "$SBOM" ] || continue
+            SERVICE=$(echo "$SBOM" | cut -d'-' -f2 | cut -d'.' -f1)
+            docker run --rm \
+              -v /opt/trivy-cache:/root/.cache/trivy \
+              -v "$PWD":/work \
+              aquasec/trivy:0.55.1 \
+              sbom /work/"$SBOM" \
+              --scanners vuln,license \
+              --format json \
+              --output /work/trivy-"$SERVICE".json || true
+          done
+          jq -s '{Results: map(.Results) | flatten}' trivy-*.json > trivy.json || echo '{"Results":[]}' > trivy.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trivy.json
+          path: trivy.json
+
+  # ---------- Deploy to staging ----------
+  deploy_stg:
+    name: Deploy to staging (VPS:8888)
+    runs-on: self-hosted
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images.txt
+          path: .
+      - name: Set TAG from artifact
+        run: echo "TAG=$(tail -n1 images.txt | cut -d: -f2)" >> "$GITHUB_ENV"
+
+      - name: Compute STAGE_URL fallback if empty
+        run: |
+          if [ -z "${STAGE_URL}" ]; then
+            IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+            echo "STAGE_URL=http://$IP:8888" >> "$GITHUB_ENV"
+            echo "STAGE_URL set to http://$IP:8888"
+          else
+            echo "Using preset STAGE_URL=${STAGE_URL}"
+          fi
+
+      - name: Login to GHCR (for pull)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compose up with GHCR images
+        working-directory: deploy/docker
+        run: |
+          set -e
+          docker compose down -v || true
+          echo "VERSION=$TAG" >> .env
+          echo "LISTEN_IP=0.0.0.0" >> .env
+          docker compose pull
+          docker compose -f docker-compose.yml --compatibility up -d
+          for i in {1..60}; do
+            if curl -fsS "${{ env.STAGE_URL }}" | grep -qi "crapi"; then
+              echo "App is up"
+              break
+            else
+              sleep 2
+            fi
+          done
+          curl -I "${{ env.STAGE_URL }}" || true
+
+  # ---------- DAST (ZAP baseline) ----------
+  dast_zap:
+    name: DAST (ZAP baseline)
+    runs-on: self-hosted
+    needs: [deploy_stg]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve DAST_URL (prefer loopback)
+        run: |
+          URL="${DAST_URL:-${STAGE_URL}}"
+          if [ -z "$URL" ]; then URL="http://127.0.0.1:8888"; fi
+          echo "DAST_URL=$URL" >> "$GITHUB_ENV"
+          echo "Using DAST_URL=$URL"
+
+      - name: Preflight connectivity (curl in container)
+        run: docker run --rm --network host curlimages/curl -I "$DAST_URL" || true
+
+      - name: Make workspace writable for 'zap'
+        run: chmod -R 777 "$PWD"
+
+      - name: ZAP baseline
+        run: |
+          docker run --rm --network host -u zap \
+            -v "$PWD":/zap/wrk -w /zap/wrk \
+            ghcr.io/zaproxy/zaproxy:stable \
+            /zap/zap-baseline.py -t "$DAST_URL" -d -I -m 5 \
+            -r zap_report.html -J zap.json 2>&1 | tee zap_run.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap.json
+          path: zap.json
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap_report.html
+          path: zap_report.html
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap_run.log
+          path: zap_run.log
+          if-no-files-found: warn
+
+  # ---------- Security Gate (soft) ----------
+  security_gate:
+    name: Security Gate (soft policy)
+    runs-on: self-hosted
+    needs: [sast_semgrep, secrets_gitleaks, deps_audit, trivy_sbom, dast_zap]
+    env:
+      MAX_CRITICAL: "0"
+      MAX_HIGH:     "0"
+      MAX_MEDIUM:   "5"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Evaluate results (soft)
+        id: gate
+        run: |
+          docker run --rm -v "$PWD":/w -w /w alpine:3.20 sh -c '
+            apk add --no-cache jq >/dev/null
+            SEM_HI=$(jq "[.results[]? | select(.extra.severity==\"HIGH\" or .extra.severity==\"ERROR\")] | length" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
+            SEM_CR=$(jq "[.results[]? | select(.extra.severity==\"CRITICAL\")] | length" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
+            GL_COUNT=$(jq "length" artifacts/gitleaks.json/gitleaks.json 2>/dev/null || echo 0)
+            NPM_HI=$(jq ".metadata.vulnerabilities.high + .metadata.vulnerabilities.critical" artifacts/deps-audit.json/npm-audit.json 2>/dev/null || echo 0)
+            GOV_HI=$(jq "[.Vuln[]? | select(.Severity==\"HIGH\" or .Severity==\"CRITICAL\")] | length" artifacts/deps-audit.json/govulncheck.json 2>/dev/null || echo 0)
+            TRI_HI=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"HIGH\")] | length" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
+            TRI_CR=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"CRITICAL\")] | length" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
+            ZAP_HI=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"3\")] | length" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
+            ZAP_MD=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"2\")] | length" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
+
+            CRIT=$((SEM_CR + TRI_CR))
+            HIGH=$((SEM_HI + TRI_HI + NPM_HI + GOV_HI + ZAP_HI + GL_COUNT))
+            MED=$((ZAP_MD))
+
+            echo "CRIT=$CRIT" > /w/gate.env
+            echo "HIGH=$HIGH" >> /w/gate.env
+            echo "MED=$MED" >> /w/gate.env
+
+            if [ "$CRIT" -gt "'$MAX_CRITICAL'" ] || [ "$HIGH" -gt "'$MAX_HIGH'" ] || [ "$MED" -gt "'$MAX_MEDIUM'" ]; then
+              echo "::warning::Security Gate SOFT-FAIL: CRIT=$CRIT HIGH=$HIGH MED=$MED (limits CRIT<='\''$MAX_CRITICAL'\'' HIGH<='\''$MAX_HIGH'\'' MED<='\''$MAX_MEDIUM'\'')"
+            else
+              echo "Security Gate OK within limits."
+            fi
+          '
+          cat gate.env >> "$GITHUB_ENV"
+
+      - name: Comment summary to PR (if PR)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const msg = `### Security Gate (soft)
+            CRITICAL: ${process.env.CRIT}
+            HIGH: ${process.env.HIGH}
+            MEDIUM: ${process.env.MED}
+
+            Artifacts: semgrep.json, gitleaks.json, deps-audit.json, trivy.json, zap_report.html`;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: msg
+            });
