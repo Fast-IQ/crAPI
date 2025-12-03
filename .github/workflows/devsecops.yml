@@ -2,7 +2,7 @@ name: DevSecOps CI/CD for crAPI
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [ "master", "main", "develop" ]
   pull_request:
 
 permissions:
@@ -231,8 +231,9 @@ jobs:
         with:
           name: images.txt
           path: .
+
       - name: Set TAG from artifact
-        run: echo "TAG=$(tail -n1 images.txt | cut -d: -f2)" >> "$GITHUB_ENV"
+        run: 'echo "TAG=$(tail -n1 images.txt | cut -d: -f2)" >> "$GITHUB_ENV"'
 
       - name: Compute STAGE_URL fallback if empty
         run: |
