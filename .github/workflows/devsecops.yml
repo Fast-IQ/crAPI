@@ -304,6 +304,7 @@ jobs:
     needs: [build]
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: images.txt
@@ -329,12 +330,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Patch docker-compose.yml to use GHCR images
+        working-directory: deploy/docker
+        run: |
+          set -e
+          OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          TAG="${{ env.TAG }}"
+          echo "Patching images to ghcr.io/$OWNER_LC/crapi-SERVICE:$TAG"
+          sed -i "s|image: crapi/crapi-\([a-z-]*\):latest|image: ghcr.io/$OWNER_LC/crapi-\1:$TAG|g" docker-compose.yml
+
       - name: Compose up with GHCR images
         working-directory: deploy/docker
         run: |
           set -e
           docker compose down -v || true
-          echo "VERSION=$TAG" >> .env
+          echo "VERSION=${{ env.TAG }}" >> .env
           echo "LISTEN_IP=0.0.0.0" >> .env
           docker compose pull
           docker compose -f docker-compose.yml --compatibility up -d
@@ -347,13 +357,13 @@ jobs:
             fi
           done
           curl -I "${{ env.STAGE_URL }}" || true
-          
+
       - name: Cleanup Docker & temp
         if: always()
         run: |
-            docker system prune -af || true
-            docker builder prune -af || true
-            rm -rf "${{ runner.temp }}"/*
+          docker system prune -af || true
+          docker builder prune -af || true
+          rm -rf "${{ runner.temp }}"/*
 
   # ---------- DAST (ZAP baseline) ----------
   dast_zap:
