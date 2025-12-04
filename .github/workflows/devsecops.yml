@@ -57,16 +57,20 @@ jobs:
       - name: Build all images from source
         working-directory: deploy/docker
         run: |
-          ./build-all.sh
-          # List built images and retag
-          IMAGES=$(docker images | grep '^crapi/' | awk '{print $1 ":" $2}')
-          for IMG in $IMAGES; do
-            SERVICE=$(echo $IMG | sed 's|crapi/||' | cut -d: -f1)
-            NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
-            docker tag $IMG $NEW_IMG
-            docker push $NEW_IMG
-            echo "$NEW_IMG" >> images.txt
-          done
+            ./build-all.sh
+            # Используем --format для точного вывода
+            IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep '^crapi/')
+            for IMG in $IMAGES; do
+              # Пропускаем <none> теги
+              if [[ "$IMG" == *"<none>" ]]; then
+                continue
+              fi
+              SERVICE=$(echo "$IMG" | sed 's|crapi/||' | cut -d: -f1)
+              NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
+              docker tag "$IMG" "$NEW_IMG"
+              docker push "$NEW_IMG"
+              echo "$NEW_IMG" >> images.txt
+            done
 
       - uses: actions/upload-artifact@v4
         with:
