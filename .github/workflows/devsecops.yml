@@ -63,7 +63,7 @@ jobs:
             SERVICES="chatbot community identity workshop web"
             for SERVICE in $SERVICES; do
                 OFFICIAL="crapi/crapi-$SERVICE:latest"
-                NEW_IMG="ghcr.io/$OWNER_LC/$REPO_LC-crapi-$SERVICE:$TAG"
+                NEW_IMG="ghcr.io/$OWNER_LC/$REPO_LC-$SERVICE:$TAG"
                 docker pull "$OFFICIAL"
                 docker tag "$OFFICIAL" "$NEW_IMG"
                 docker push "$NEW_IMG"
@@ -74,6 +74,13 @@ jobs:
         with:
           name: images.txt
           path: deploy/docker/images.txt
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- Dockerfile lint ----------
   dockerfile_hadolint:
@@ -92,6 +99,13 @@ jobs:
             echo "Linting $DF"
             docker run --rm -i hadolint/hadolint < "$DF" || true
           done
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- SAST (Semgrep) ----------
   sast_semgrep:
@@ -108,6 +122,13 @@ jobs:
         with:
           name: semgrep.json
           path: semgrep.json
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- Secrets (Gitleaks) ----------
   secrets_gitleaks:
@@ -124,6 +145,13 @@ jobs:
         with:
           name: gitleaks.json
           path: gitleaks.json
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- Dependencies (multi-lang audit) ----------
   deps_audit:
@@ -178,6 +206,13 @@ jobs:
           path: |
             npm-audit.json
             govulncheck.json
+            
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- SBOM (Syft CycloneDX) ----------
   sbom_syft:
@@ -203,6 +238,13 @@ jobs:
         with:
           name: sbom-cyclonedx
           path: sbom-*.json
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- Vulnerability scan (Trivy by SBOM) ----------
   trivy_sbom:
@@ -237,6 +279,13 @@ jobs:
         with:
           name: trivy.json
           path: trivy.json
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- Deploy to staging ----------
   deploy_stg:
@@ -288,6 +337,13 @@ jobs:
             fi
           done
           curl -I "${{ env.STAGE_URL }}" || true
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- DAST (ZAP baseline) ----------
   dast_zap:
@@ -333,6 +389,13 @@ jobs:
           name: zap_run.log
           path: zap_run.log
           if-no-files-found: warn
+          
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
 
   # ---------- Security Gate (soft) ----------
   security_gate:
@@ -398,3 +461,10 @@ jobs:
               issue_number: context.issue.number,
               body: msg
             });
+            
+      - name: Cleanup Docker & temp
+        if: always()
+        run: |
+            docker system prune -af || true
+            docker builder prune -af || true
+            rm -rf "${{ runner.temp }}"/*
