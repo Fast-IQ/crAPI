@@ -1,8 +1,9 @@
-FROM golang:1.21-bookworm AS builder
+FROM golang:1.23-bookworm AS builder
 WORKDIR /app
 
 COPY go.* ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . ./
 

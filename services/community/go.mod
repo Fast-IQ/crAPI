@@ -1,6 +1,6 @@
 module crapi.proj/goservice
 
-go 1.21
+go 1.23
 
 require (
 	github.com/badoux/checkmail v0.0.0-20200623144435-f9f80cb795fa
