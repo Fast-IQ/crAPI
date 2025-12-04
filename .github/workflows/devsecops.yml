@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  STAGE_URL: ${{ vars.STAGE_URL }}   # e.g. http://139.28.223.105:8888
+  STAGE_URL: ${{ vars.STAGE_URL }}   # e.g. http://185.189.14.236:8888
   DAST_URL: ${{ vars.DAST_URL }}     # e.g. http://127.0.0.1:8888
   CRAPI_VERSION: latest
 
@@ -60,7 +60,7 @@ jobs:
             FULL_REPO="${{ github.repository }}"
             OWNER_LC=$(echo "$FULL_REPO" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
             REPO_LC=$(echo "$FULL_REPO" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
-            SERVICES="chatbot community identity mailhog workshop web"
+            SERVICES="chatbot community identity workshop web"
             for SERVICE in $SERVICES; do
                 OFFICIAL="crapi/crapi-$SERVICE:latest"
                 NEW_IMG="ghcr.io/$OWNER_LC/$REPO_LC-crapi-$SERVICE:$TAG"
