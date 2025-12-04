@@ -53,22 +53,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Retag official images & Push to GHCR
+          
+      - name: Build all images from source
         working-directory: deploy/docker
         run: |
-            FULL_REPO="${{ github.repository }}"
-            OWNER_LC=$(echo "$FULL_REPO" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
-            REPO_LC=$(echo "$FULL_REPO" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
-            SERVICES="chatbot community identity workshop web"
-            for SERVICE in $SERVICES; do
-                OFFICIAL="crapi/crapi-$SERVICE:latest"
-                NEW_IMG="ghcr.io/$OWNER_LC/$REPO_LC-$SERVICE:$TAG"
-                docker pull "$OFFICIAL"
-                docker tag "$OFFICIAL" "$NEW_IMG"
-                docker push "$NEW_IMG"
-                echo "$NEW_IMG" >> images.txt
-            done
+          ./build-all.sh
+          # List built images and retag
+          IMAGES=$(docker images | grep '^crapi/' | awk '{print $1 ":" $2}')
+          for IMG in $IMAGES; do
+            SERVICE=$(echo $IMG | sed 's|crapi/||' | cut -d: -f1)
+            NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
+            docker tag $IMG $NEW_IMG
+            docker push $NEW_IMG
+            echo "$NEW_IMG" >> images.txt
+          done
 
       - uses: actions/upload-artifact@v4
         with:
