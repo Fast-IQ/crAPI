@@ -57,10 +57,12 @@ jobs:
       - name: Retag official images & Push to GHCR
         working-directory: deploy/docker
         run: |
+          OWNER_LC="${{ github.repository_owner }}"
+          REPO_NAME=$(basename ${{ github.repository }} | tr '[:upper:]' '[:lower:]')
           SERVICES="community gateway identity mailhog postgres workshop web"
           for SERVICE in $SERVICES; do
             OFFICIAL="crapi/crapi-$SERVICE:latest"
-            NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
+            NEW_IMG="ghcr.io/$OWNER_LC/$REPO_NAME-crapi-$SERVICE:$TAG"
             docker pull $OFFICIAL
             docker tag $OFFICIAL $NEW_IMG
             docker push $NEW_IMG
@@ -368,7 +370,7 @@ jobs:
             echo "MED=$MED" >> /w/gate.env
 
             if [ "$CRIT" -gt "'$MAX_CRITICAL'" ] || [ "$HIGH" -gt "'$MAX_HIGH'" ] || [ "$MED" -gt "'$MAX_MEDIUM'" ]; then
-              echo "::warning::Security Gate SOFT-FAIL: CRIT=$CRIT HIGH=$HIGH MED=$MED (limits CRIT<='\''$MAX_CRITICAL'\'' HIGH<='\''$MAX_HIGH'\'' MED<='\''$MAX_MEDIUM'\'')"
+              echo "::warning::Security Gate SOFT-FAIL: CRIT=$CRIT HIGH=$HIGH MED=$MED (limits CRIT<='$MAX_CRITICAL' HIGH<='$MAX_HIGH' MED<='$MAX_MEDIUM')"
             else
               echo "Security Gate OK within limits."
             fi
