@@ -60,7 +60,7 @@ jobs:
             FULL_REPO="${{ github.repository }}"
             OWNER_LC=$(echo "$FULL_REPO" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
             REPO_LC=$(echo "$FULL_REPO" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
-            SERVICES="chatbot community gateway-service identity mailhog workshop web"
+            SERVICES="chatbot community identity mailhog workshop web"
             for SERVICE in $SERVICES; do
                 OFFICIAL="crapi/crapi-$SERVICE:latest"
                 NEW_IMG="ghcr.io/$OWNER_LC/$REPO_LC-crapi-$SERVICE:$TAG"
