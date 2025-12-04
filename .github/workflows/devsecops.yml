@@ -57,17 +57,18 @@ jobs:
       - name: Retag official images & Push to GHCR
         working-directory: deploy/docker
         run: |
-          OWNER_LC="${{ github.repository_owner }}"
-          REPO_NAME=$(basename ${{ github.repository }} | tr '[:upper:]' '[:lower:]')
-          SERVICES="community gateway identity mailhog postgres workshop web"
-          for SERVICE in $SERVICES; do
-            OFFICIAL="crapi/crapi-$SERVICE:latest"
-            NEW_IMG="ghcr.io/$OWNER_LC/$REPO_NAME-crapi-$SERVICE:$TAG"
-            docker pull $OFFICIAL
-            docker tag $OFFICIAL $NEW_IMG
-            docker push $NEW_IMG
-            echo "$NEW_IMG" >> images.txt
-          done
+            FULL_REPO="${{ github.repository }}"
+            OWNER_LC=$(echo "$FULL_REPO" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
+            REPO_LC=$(echo "$FULL_REPO" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
+            SERVICES="community gateway identity mailhog postgres workshop web"
+            for SERVICE in $SERVICES; do
+                OFFICIAL="crapi/crapi-$SERVICE:latest"
+                NEW_IMG="ghcr.io/$OWNER_LC/$REPO_LC-crapi-$SERVICE:$TAG"
+                docker pull "$OFFICIAL"
+                docker tag "$OFFICIAL" "$NEW_IMG"
+                docker push "$NEW_IMG"
+                echo "$NEW_IMG" >> images.txt
+            done
 
       - uses: actions/upload-artifact@v4
         with:
