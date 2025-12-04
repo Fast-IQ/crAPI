@@ -54,17 +54,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build all images from source
+      - name: Retag official images & Push to GHCR
         working-directory: deploy/docker
         run: |
-          ./build-all.sh
-
-          IMAGES=$(docker images | grep '^crapi/' | awk '{print $1 ":" $2}')
-          for IMG in $IMAGES; do
-            SERVICE=$(echo "$IMG" | sed 's|crapi/||' | cut -d: -f1)
+          SERVICES="community gateway identity mailhog postgres workshop web"
+          for SERVICE in $SERVICES; do
+            OFFICIAL="crapi/crapi-$SERVICE:latest"
             NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
-            docker tag "$IMG" "$NEW_IMG"
-            docker push "$NEW_IMG"
+            docker pull $OFFICIAL
+            docker tag $OFFICIAL $NEW_IMG
+            docker push $NEW_IMG
             echo "$NEW_IMG" >> images.txt
           done
 
@@ -134,7 +133,7 @@ jobs:
           node-version: '20'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
 
       - name: NPM audit (for JS/TS parts)
         run: |
@@ -153,16 +152,19 @@ jobs:
           [ -s npm-audit.json ] || echo '{}' > npm-audit.json
 
       - name: Govulncheck (for Go parts)
-        run: |
-          GO_MODS=$(find . -name go.mod)
-          > govulncheck.json
-          for DIR in $(dirname $GO_MODS); do
-            cd "$DIR"
-            go install golang.org/x/vuln/cmd/govulncheck@latest
-            govulncheck -json ./... >> ../../govulncheck.json || true
-            cd - >/dev/null
-          done
-          [ -s govulncheck.json ] || echo '[]' > govulncheck.json
+          run: |
+              export GOPATH="${{ runner.temp }}/go"
+              export PATH="$PATH:$GOPATH/bin"
+              mkdir -p "$GOPATH/bin" "$GOPATH/pkg/mod"  # Создать кэш
+              GO_MODS=$(find . -name go.mod)
+              > govulncheck.json
+              for DIR in $(dirname $GO_MODS); do
+              cd "$DIR"
+              go install golang.org/x/vuln/cmd/govulncheck@latest
+              govulncheck -json ./... >> ../../govulncheck.json || true
+              cd - >/dev/null
+              done
+              [ -s govulncheck.json ] || echo '[]' > govulncheck.json
 
       - uses: actions/upload-artifact@v4
         with:
