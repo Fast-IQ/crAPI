@@ -33,10 +33,11 @@ jobs:
       - name: Compute image tag
         id: meta
         run: |
-          REPO_LC="${GITHUB_REPOSITORY,,}"
+          REPO_LC=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
           SHA="${GITHUB_SHA::7}"
           TAG="$SHA"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "REPO_LC=$REPO_LC" >> "$GITHUB_ENV"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           
       - name: Debug context
@@ -73,7 +74,7 @@ jobs:
                 continue
               fi
               SERVICE=$(echo "$IMG" | sed 's|crapi/||' | cut -d: -f1)
-              NEW_IMG="ghcr.io/${REPO_LC}/crapi-$SERVICE:$TAG"
+              NEW_IMG="ghcr.io/${{ env.REPO_LC }}/crapi-$SERVICE:${{ env.TAG }}"
               docker tag "$IMG" "$NEW_IMG"
               docker push "$NEW_IMG"
               echo "$NEW_IMG" >> images.txt
