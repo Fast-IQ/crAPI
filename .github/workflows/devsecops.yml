@@ -156,18 +156,21 @@ jobs:
 
       - name: Govulncheck (for Go parts)
         run: |
-          export GOPATH="${{ runner.temp }}/go"
-          export PATH="$PATH:$GOPATH/bin"
-          mkdir -p "$GOPATH/bin" "$GOPATH/pkg/mod"  # Создать кэш
-          GO_MODS=$(find . -name go.mod)
-          > govulncheck.json
-          for DIR in $(dirname $GO_MODS); do
-            cd "$DIR"
-            go install golang.org/x/vuln/cmd/govulncheck@latest
-            govulncheck -json ./... >> ../../govulncheck.json || true
-            cd - >/dev/null
-          done
-          [ -s govulncheck.json ] || echo '[]' > govulncheck.json
+            # Убедимся, что HOME определён
+            export HOME="${{ runner.temp }}"
+            export GOPATH="${{ runner.temp }}/go"
+            export GOCACHE="${{ runner.temp }}/go-build"
+            export PATH="$PATH:$GOPATH/bin"
+            mkdir -p "$GOPATH/bin" "$GOCACHE"
+            GO_MODS=$(find . -name go.mod)
+            > govulncheck.json
+            for DIR in $(dirname $GO_MODS); do
+                cd "$DIR"
+                go install golang.org/x/vuln/cmd/govulncheck@latest
+                govulncheck -json ./... >> ../../govulncheck.json || true
+                cd - >/dev/null
+               done
+            [ -s govulncheck.json ] || echo '[]' > govulncheck.json
 
       - uses: actions/upload-artifact@v4
         with:
