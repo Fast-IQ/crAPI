@@ -346,8 +346,24 @@ jobs:
           docker compose down -v || true
           echo "VERSION=${{ env.TAG }}" >> .env
           echo "LISTEN_IP=0.0.0.0" >> .env
+          # Добавьте все необходимые env для crAPI (из .env.example или документации)
+          echo "POSTGRES_HOST=postgresdb" >> .env
+          echo "POSTGRES_PORT=5432" >> .env
+          echo "POSTGRES_USER=crapi" >> .env
+          echo "POSTGRES_PASSWORD=crapi" >> .env
+          echo "POSTGRES_DB=crapi" >> .env
+          echo "MONGO_HOST=mongodb" >> .env
+          echo "MONGO_PORT=27017" >> .env
+          echo "MONGO_DB=crapi" >> .env
+          echo "JWT_SECRET=your_secret_here" >> .env  # Замените на реальный секрет
+          echo "MAILHOG_HOST=mailhog" >> .env
+          echo "MAILHOG_PORT=1025" >> .env
           docker compose pull
           docker compose -f docker-compose.yml --compatibility up -d
+          # Ждите health и логируйте ошибки
+          sleep 10  # Дайте время на старт
+          docker compose logs crapi-identity > identity_logs.txt || true
+          cat identity_logs.txt  # Вывод в CI лог
           for i in {1..60}; do
             if curl -fsS "${{ env.STAGE_URL }}" | grep -qi "crapi"; then
               echo "App is up"
@@ -356,8 +372,12 @@ jobs:
               sleep 2
             fi
           done
+          if [ $i -eq 60 ]; then 
+            echo "App failed to start, dumping logs"
+            docker compose logs --tail 100
+          fi
           curl -I "${{ env.STAGE_URL }}" || true
-
+          
       - name: Cleanup Docker & temp
         if: always()
         run: |
