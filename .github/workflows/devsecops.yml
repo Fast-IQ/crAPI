@@ -297,7 +297,7 @@ jobs:
             docker builder prune -af || true
             rm -rf "${{ runner.temp }}"/*
 
-  # ---------- Deploy to staging ----------
+    # ---------- Deploy to staging ----------
   deploy_stg:
     name: Deploy to staging (VPS:8888)
     runs-on: self-hosted
@@ -311,7 +311,8 @@ jobs:
           path: .
 
       - name: Set TAG from artifact
-        run: 'echo "TAG=$(tail -n1 images.txt | cut -d: -f2)" >> "$GITHUB_ENV"'
+        run: |
+          echo "TAG=$(cat images.txt | grep -o ':[a-z0-9]\{7\}$' | tail -n1 | cut -d: -f2)" >> "$GITHUB_ENV"
 
       - name: Compute STAGE_URL fallback if empty
         run: |
@@ -330,6 +331,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Debug TAG and images
+        working-directory: deploy/docker
+        run: |
+          echo "TAG=${{ env.TAG }}"
+          ls -l ../../images.txt || true
+          cat ../../images.txt || true
+          cat docker-compose.yml | grep image: || true
+
       - name: Patch docker-compose.yml to use GHCR images
         working-directory: deploy/docker
         run: |
@@ -337,13 +346,15 @@ jobs:
           OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           TAG="${{ env.TAG }}"
           echo "Patching images to ghcr.io/$OWNER_LC/crapi-SERVICE:$TAG"
-          sed -i "s|image: crapi/crapi-\([a-z-]*\):latest|image: ghcr.io/$OWNER_LC/crapi-\1:$TAG|g" docker-compose.yml
+          sed -i "s|image: crapi/|image: ghcr.io/$OWNER_LC/crapi-|g" docker-compose.yml
+          sed -i "s|:\${VERSION:-latest}|:$TAG|g" docker-compose.yml
+          cat docker-compose.yml | grep image: || true
 
       - name: Compose up with GHCR images
         working-directory: deploy/docker
         run: |
           set -e
-          docker compose down -v || true
+          docker compose down -v --remove-orphans --rmi local || true
           echo "VERSION=${{ env.TAG }}" >> .env
           echo "LISTEN_IP=0.0.0.0" >> .env
           # Добавьте все необходимые env для crAPI (из .env.example или документации)
@@ -355,15 +366,16 @@ jobs:
           echo "MONGO_HOST=mongodb" >> .env
           echo "MONGO_PORT=27017" >> .env
           echo "MONGO_DB=crapi" >> .env
-          echo "JWT_SECRET=your_secret_here" >> .env  # Замените на реальный секрет
+          echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env
           echo "MAILHOG_HOST=mailhog" >> .env
           echo "MAILHOG_PORT=1025" >> .env
           docker compose pull
-          docker compose -f docker-compose.yml --compatibility up -d
+          docker compose -f docker-compose.yml --compatibility up -d --remove-orphans
           # Ждите health и логируйте ошибки
-          sleep 10  # Дайте время на старт
+          sleep 20  # Дайте время на старт
           docker compose logs crapi-identity > identity_logs.txt || true
           cat identity_logs.txt  # Вывод в CI лог
+          docker ps -a
           for i in {1..60}; do
             if curl -fsS "${{ env.STAGE_URL }}" | grep -qi "crapi"; then
               echo "App is up"
@@ -375,6 +387,7 @@ jobs:
           if [ $i -eq 60 ]; then 
             echo "App failed to start, dumping logs"
             docker compose logs --tail 100
+            docker inspect crapi-identity || true
           fi
           curl -I "${{ env.STAGE_URL }}" || true
           
