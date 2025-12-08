@@ -490,13 +490,13 @@ jobs:
             -e MAX_HIGH="$MAX_HIGH" \
             -e MAX_MEDIUM="$MAX_MEDIUM" \
             alpine:3.20 sh -c '
-              set -x  # Для debug: трассировка в логах
+              set -x  # Удалите после debug
               apk add --no-cache jq >/dev/null
               SEM_HI=$(jq "[.results[]? | select(.extra.severity==\"HIGH\" or .extra.severity==\"ERROR\")] | length // 0" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
               SEM_CR=$(jq "[.results[]? | select(.extra.severity==\"CRITICAL\")] | length // 0" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
               GL_COUNT=$(jq "length // 0" artifacts/gitleaks.json/gitleaks.json 2>/dev/null || echo 0)
-              NPM_HI=$(jq "(.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0)" artifacts/deps-audit.json/npm-audit.json 2>/dev/null || echo 0)
-              GOV_HI=$(jq "[.Vuln[]? | select(.Severity==\"HIGH\" or .Severity==\"CRITICAL\")] | length // 0" artifacts/deps-audit.json/govulncheck.json 2>/dev/null || echo 0)
+              NPM_HI=$(jq -s "map(.metadata.vulnerabilities.high // 0 + .metadata.vulnerabilities.critical // 0) | add // 0" artifacts/deps-audit.json/npm-audit.json 2>/dev/null || echo 0)
+              GOV_HI=$(jq -s "[.[].Vuln[]? | select(.Severity==\"HIGH\" or .Severity==\"CRITICAL\")] | length // 0" artifacts/deps-audit.json/govulncheck.json 2>/dev/null || echo 0)
               TRI_HI=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"HIGH\")] | length // 0" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
               TRI_CR=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"CRITICAL\")] | length // 0" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
               ZAP_HI=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"3\")] | length // 0" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
