@@ -294,12 +294,6 @@ jobs:
           name: trivy.json
           path: trivy.json
           
-      - name: Cleanup Docker & temp
-        if: always()
-        run: |
-            docker system prune -af || true
-            docker builder prune -af || true
-            rm -rf "${{ runner.temp }}"/*
 
 # ---------- Deploy to staging ----------
   deploy_stg:
@@ -363,6 +357,34 @@ jobs:
           docker compose down -v --remove-orphans --rmi local || true
           echo "VERSION=${{ env.TAG }}" >> .env
           echo "LISTEN_IP=0.0.0.0" >> .env
+          echo "DB_NAME=crapi" >> .env
+          echo "DB_USER=admin" >> .env
+          echo "DB_PASSWORD=crapisecretpassword" >> .env
+          echo "DB_HOST=postgresdb" >> .env
+          echo "DB_PORT=5432" >> .env
+          echo "SERVER_PORT=8888" >> .env
+          echo "ENABLE_SHELL_INJECTION=false" >> .env
+          echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env  
+          echo "MAILHOG_HOST=mailhog" >> .env
+          echo "MAILHOG_PORT=1025" >> .env
+          echo "MAILHOG_DOMAIN=example.com" >> .env
+          echo "SMTP_HOST=mailhog" >> .env
+          echo "SMTP_PORT=1025" >> .env
+          echo "SMTP_EMAIL=no-reply@example.com" >> .env
+          echo "SMTP_PASS=" >> .env
+          echo "SMTP_FROM=no-reply@example.com" >> .env
+          echo "SMTP_AUTH=false" >> .env
+          echo "SMTP_STARTTLS=false" >> .env
+          echo "JWT_EXPIRATION=604800000" >> .env
+          echo "ENABLE_LOG4J=false" >> .env
+          echo "API_GATEWAY_URL=http://api.mypremiumdealership.com" >> .env
+          echo "TLS_ENABLED=false" >> .env
+          echo "TLS_KEYSTORE_TYPE=PKCS12" >> .env
+          echo "TLS_KEYSTORE=classpath:certs/server.p12" >> .env
+          echo "TLS_KEYSTORE_PASSWORD=passw0rd" >> .env
+          echo "TLS_KEY_PASSWORD=passw0rd" >> .env
+          echo "TLS_KEY_ALIAS=identity" >> .env
+          echo "LOG_LEVEL=DEBUG" >> .env
           # Добавьте все необходимые env для crAPI (из .env.example или документации)
           echo "POSTGRES_HOST=postgresdb" >> .env
           echo "POSTGRES_PORT=5432" >> .env
@@ -370,17 +392,9 @@ jobs:
           echo "POSTGRES_USER=admin" >> .env
           echo "POSTGRES_PASSWORD=crapisecretpassword" >> .env
           # Для identity (он использует DB_*)
-          echo "DB_USER=admin" >> .env
-          echo "DB_PASSWORD=crapisecretpassword" >> .env
-          echo "DB_NAME=crapi" >> .env
-          echo "DB_HOST=postgresdb" >> .env
-          echo "DB_PORT=5432" >> .env
           echo "MONGO_HOST=mongodb" >> .env
           echo "MONGO_PORT=27017" >> .env
           echo "MONGO_DB=crapi" >> .env
-          echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env  
-          echo "MAILHOG_HOST=mailhog" >> .env
-          echo "MAILHOG_PORT=1025" >> .env
           docker compose pull
           docker compose -f docker-compose.yml --compatibility up -d --remove-orphans
           # Захват логов сразу после up (даже если контейнер exited)
