@@ -366,9 +366,15 @@ jobs:
           # Добавьте все необходимые env для crAPI (из .env.example или документации)
           echo "POSTGRES_HOST=postgresdb" >> .env
           echo "POSTGRES_PORT=5432" >> .env
-          echo "POSTGRES_USER=crapi" >> .env
-          echo "POSTGRES_PASSWORD=crapi" >> .env
           echo "POSTGRES_DB=crapi" >> .env
+          echo "POSTGRES_USER=admin" >> .env
+          echo "POSTGRES_PASSWORD=crapisecretpassword" >> .env
+          # Для identity (он использует DB_*)
+          echo "DB_USER=admin" >> .env
+          echo "DB_PASSWORD=crapisecretpassword" >> .env
+          echo "DB_NAME=crapi" >> .env
+          echo "DB_HOST=postgresdb" >> .env
+          echo "DB_PORT=5432" >> .env
           echo "MONGO_HOST=mongodb" >> .env
           echo "MONGO_PORT=27017" >> .env
           echo "MONGO_DB=crapi" >> .env
@@ -377,10 +383,13 @@ jobs:
           echo "MAILHOG_PORT=1025" >> .env
           docker compose pull
           docker compose -f docker-compose.yml --compatibility up -d --remove-orphans
-          # Ждите health и логируйте ошибки
-          sleep 20  # Дайте время на старт
-          docker compose logs crapi-identity > identity_logs.txt || true
-          cat identity_logs.txt  # Вывод в CI лог
+          # Захват логов сразу после up (даже если контейнер exited)
+          docker compose logs crapi-identity --tail 200 > identity_logs_initial.txt || true
+          cat identity_logs_initial.txt
+          sleep 20
+          # Основные логи после sleep
+          docker compose logs crapi-identity --tail 200 > identity_logs.txt || true
+          cat identity_logs.txt
           docker ps -a
           for i in {1..60}; do
             if curl -fsS "${{ env.STAGE_URL }}" | grep -qi "crapi"; then
@@ -392,17 +401,11 @@ jobs:
           done
           if [ $i -eq 60 ]; then 
             echo "App failed to start, dumping logs"
-            docker compose logs --tail 100
-            docker inspect crapi-identity || true
+            docker compose logs --tail 200  # Увеличьте tail для больше деталей
+            docker inspect crapi-identity | jq '.[0].State' || true  # Только State для краткости
           fi
           curl -I "${{ env.STAGE_URL }}" || true
-          
-      - name: Cleanup Docker & temp
-        if: always()
-        run: |
-          docker system prune -af || true
-          docker builder prune -af || true
-          rm -rf "${{ runner.temp }}"/*
+
 
   # ---------- DAST (ZAP baseline) ----------
   dast_zap:
@@ -449,13 +452,6 @@ jobs:
           path: zap_run.log
           if-no-files-found: warn
           
-      - name: Cleanup Docker & temp
-        if: always()
-        run: |
-            docker system prune -af || true
-            docker builder prune -af || true
-            rm -rf "${{ runner.temp }}"/*
-
   # ---------- Security Gate (soft) ----------
   security_gate:
     name: Security Gate (soft policy)
@@ -521,9 +517,3 @@ jobs:
               body: msg
             });
             
-      - name: Cleanup Docker & temp
-        if: always()
-        run: |
-            docker system prune -af || true
-            docker builder prune -af || true
-            rm -rf "${{ runner.temp }}"/*
