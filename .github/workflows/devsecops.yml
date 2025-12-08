@@ -33,11 +33,11 @@ jobs:
       - name: Compute image tag
         id: meta
         run: |
-          REPO_LC=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           SHA="${GITHUB_SHA::7}"
           TAG="$SHA"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "REPO_LC=$REPO_LC" >> "$GITHUB_ENV"
+          echo "OWNER_LC=$OWNER_LC" >> "$GITHUB_ENV"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           
       - name: Debug context
@@ -66,6 +66,8 @@ jobs:
         working-directory: deploy/docker
         run: |
             ./build-all.sh
+            # Debug built images
+            docker images --format "{{.Repository}}:{{.Tag}}" | grep crapi || true
             # Используем --format для точного вывода
             IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep '^crapi/')
             for IMG in $IMAGES; do
@@ -74,7 +76,9 @@ jobs:
                 continue
               fi
               SERVICE=$(echo "$IMG" | sed 's|crapi/||' | cut -d: -f1)
-              NEW_IMG="ghcr.io/${{ env.REPO_LC }}/crapi-$SERVICE:${{ env.TAG }}"
+              SERVICE=$(echo "$SERVICE" | sed 's/^crapi-//')
+              NEW_IMG="ghcr.io/${{ env.OWNER_LC }}/crapi-$SERVICE:${{ env.TAG }}"
+              echo "Tagging and pushing $NEW_IMG"
               docker tag "$IMG" "$NEW_IMG"
               docker push "$NEW_IMG"
               echo "$NEW_IMG" >> images.txt
@@ -297,7 +301,7 @@ jobs:
             docker builder prune -af || true
             rm -rf "${{ runner.temp }}"/*
 
-    # ---------- Deploy to staging ----------
+# ---------- Deploy to staging ----------
   deploy_stg:
     name: Deploy to staging (VPS:8888)
     runs-on: self-hosted
@@ -345,6 +349,8 @@ jobs:
           set -e
           OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           TAG="${{ env.TAG }}"
+          echo "Normalizing image names in docker-compose.yml"
+          sed -i 's|crapi/crapi-|crapi/|g' docker-compose.yml
           echo "Patching images to ghcr.io/$OWNER_LC/crapi-SERVICE:$TAG"
           sed -i "s|image: crapi/|image: ghcr.io/$OWNER_LC/crapi-|g" docker-compose.yml
           sed -i "s|:\${VERSION:-latest}|:$TAG|g" docker-compose.yml
@@ -366,7 +372,7 @@ jobs:
           echo "MONGO_HOST=mongodb" >> .env
           echo "MONGO_PORT=27017" >> .env
           echo "MONGO_DB=crapi" >> .env
-          echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env
+          echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env  
           echo "MAILHOG_HOST=mailhog" >> .env
           echo "MAILHOG_PORT=1025" >> .env
           docker compose pull
