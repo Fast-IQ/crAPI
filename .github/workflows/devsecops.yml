@@ -403,7 +403,7 @@ jobs:
           sleep 20
           # Основные логи после sleep
           docker compose logs crapi-identity --tail 200 > identity_logs.txt || true
-          cat identity_logs.txt
+          # cat identity_logs.txt
           docker ps -a
           for i in {1..60}; do
             if curl -fsS "${{ env.STAGE_URL }}" | grep -qi "crapi"; then
@@ -485,32 +485,37 @@ jobs:
       - name: Evaluate results (soft)
         id: gate
         run: |
-          docker run --rm -v "$PWD":/w -w /w alpine:3.20 sh -c '
-            apk add --no-cache jq >/dev/null
-            SEM_HI=$(jq "[.results[]? | select(.extra.severity==\"HIGH\" or .extra.severity==\"ERROR\")] | length" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
-            SEM_CR=$(jq "[.results[]? | select(.extra.severity==\"CRITICAL\")] | length" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
-            GL_COUNT=$(jq "length" artifacts/gitleaks.json/gitleaks.json 2>/dev/null || echo 0)
-            NPM_HI=$(jq ".metadata.vulnerabilities.high + .metadata.vulnerabilities.critical" artifacts/deps-audit.json/npm-audit.json 2>/dev/null || echo 0)
-            GOV_HI=$(jq "[.Vuln[]? | select(.Severity==\"HIGH\" or .Severity==\"CRITICAL\")] | length" artifacts/deps-audit.json/govulncheck.json 2>/dev/null || echo 0)
-            TRI_HI=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"HIGH\")] | length" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
-            TRI_CR=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"CRITICAL\")] | length" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
-            ZAP_HI=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"3\")] | length" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
-            ZAP_MD=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"2\")] | length" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
+          docker run --rm -v "$PWD":/w -w /w \
+            -e MAX_CRITICAL="$MAX_CRITICAL" \
+            -e MAX_HIGH="$MAX_HIGH" \
+            -e MAX_MEDIUM="$MAX_MEDIUM" \
+            alpine:3.20 sh -c '
+              set -x  # Для debug: трассировка в логах
+              apk add --no-cache jq >/dev/null
+              SEM_HI=$(jq "[.results[]? | select(.extra.severity==\"HIGH\" or .extra.severity==\"ERROR\")] | length // 0" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
+              SEM_CR=$(jq "[.results[]? | select(.extra.severity==\"CRITICAL\")] | length // 0" artifacts/semgrep.json/semgrep.json 2>/dev/null || echo 0)
+              GL_COUNT=$(jq "length // 0" artifacts/gitleaks.json/gitleaks.json 2>/dev/null || echo 0)
+              NPM_HI=$(jq "(.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0)" artifacts/deps-audit.json/npm-audit.json 2>/dev/null || echo 0)
+              GOV_HI=$(jq "[.Vuln[]? | select(.Severity==\"HIGH\" or .Severity==\"CRITICAL\")] | length // 0" artifacts/deps-audit.json/govulncheck.json 2>/dev/null || echo 0)
+              TRI_HI=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"HIGH\")] | length // 0" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
+              TRI_CR=$(jq "[.Results[]? | .Vulnerabilities[]? | select(.Severity==\"CRITICAL\")] | length // 0" artifacts/trivy.json/trivy.json 2>/dev/null || echo 0)
+              ZAP_HI=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"3\")] | length // 0" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
+              ZAP_MD=$(jq "[.site[]?.alerts[]? | select(.riskcode==\"2\")] | length // 0" artifacts/zap.json/zap.json 2>/dev/null || echo 0)
 
-            CRIT=$((SEM_CR + TRI_CR))
-            HIGH=$((SEM_HI + TRI_HI + NPM_HI + GOV_HI + ZAP_HI + GL_COUNT))
-            MED=$((ZAP_MD))
+              CRIT=$((SEM_CR + TRI_CR))
+              HIGH=$((SEM_HI + TRI_HI + NPM_HI + GOV_HI + ZAP_HI + GL_COUNT))
+              MED=$((ZAP_MD))
 
-            echo "CRIT=$CRIT" > /w/gate.env
-            echo "HIGH=$HIGH" >> /w/gate.env
-            echo "MED=$MED" >> /w/gate.env
+              echo "CRIT=$CRIT" > /w/gate.env
+              echo "HIGH=$HIGH" >> /w/gate.env
+              echo "MED=$MED" >> /w/gate.env
 
-            if [ "$CRIT" -gt "'$MAX_CRITICAL'" ] || [ "$HIGH" -gt "'$MAX_HIGH'" ] || [ "$MED" -gt "'$MAX_MEDIUM'" ]; then
-              echo "::warning::Security Gate SOFT-FAIL: CRIT=$CRIT HIGH=$HIGH MED=$MED (limits CRIT<='$MAX_CRITICAL' HIGH<='$MAX_HIGH' MED<='$MAX_MEDIUM')"
-            else
-              echo "Security Gate OK within limits."
-            fi
-          '
+              if [ "$CRIT" -gt "$MAX_CRITICAL" ] || [ "$HIGH" -gt "$MAX_HIGH" ] || [ "$MED" -gt "$MAX_MEDIUM" ]; then
+                echo "::warning::Security Gate SOFT-FAIL: CRIT=$CRIT HIGH=$HIGH MED=$MED (limits CRIT<=$MAX_CRITICAL HIGH<=$MAX_HIGH MED<=$MAX_MEDIUM)"
+              else
+                echo "Security Gate OK within limits."
+              fi
+            '
           cat gate.env >> "$GITHUB_ENV"
 
       - name: Comment summary to PR (if PR)
@@ -529,5 +534,4 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: msg
-            });
-            
+            });        
